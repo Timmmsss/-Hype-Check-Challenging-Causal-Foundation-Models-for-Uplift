@@ -226,6 +226,47 @@ the evaluation row identifiers are asserted to match before the two are mixed.
 Hyperparameters are **frozen across severities**. Re-tuning per severity would
 confound the axis with the search budget.
 
+### Hyperparameter robustness (does the breakpoint move when you tune?)
+
+The frozen protocol above asks *where a model breaks*. A second question is
+*which of its hyperparameters change that breakpoint at all* — worth tuning — and
+which are inert. Three flags turn one hyperparameter per specialist into an extra
+sweep dimension:
+
+| flag | model | constructor keyword | default |
+|---|---|---|---|
+| `--causalpfn-context-variants` | `causalpfn` | `max_context_length` | 4096 |
+| `--gp-component-variants` | `gp_cate` | `n_components` (PCA) | 20 |
+| `--q-min-converters-variants` | `q_learner`, `q_learner_ratio` | `min_converters` | 50 |
+
+Each flag takes a comma-separated list. Every listed value is fitted at **every**
+cell of the sweep, so each value gets its own breakpoint. The value equal to the
+model's own default keeps the plain series id (`causalpfn`), so the standard H3
+tables are unchanged; every other value gets a suffixed id (`causalpfn#ctx1024`).
+All variants of a cell share one `predictions.parquet`, so the paired bootstrap
+still compares each variant against the same baselines on the same rows. A
+variant is never treated as its own competitor.
+
+```bash
+python run_robustness.py --datasets retailhero \
+    --axes scale,control_share,conversion --seeds 0,1,2,3,4,5,6,7,8,9 \
+    --causalpfn-context-variants 1024,4096 \
+    --gp-component-variants 10,20,40 \
+    --q-min-converters-variants 50,100 \
+    --equalize-rows 40000 --max-rows 0
+```
+
+`metrics.csv` gains `base_model`, `hparam_tag`, `hparam_name`, `hparam_value` and
+`hparams_used` (a JSON record of the settings the estimator *actually* used after
+any internal clamping — e.g. GP-CATE reducing `n_components` on a thin arm, or the
+converter count that survived at low conversion). The analysis adds
+`breakpoint_hparam_<axis>.csv`, `hparam_breakpoints.csv` and
+`hparam_breakpoint_shift.csv` (the signed breakpoint shift, in severity-grid
+steps, of each value against the model default), a `Hyperparameter influence`
+section with a critical/not-critical verdict in `regime_map.md`, and one
+`hparam_<dataset>_<axis>_<model>` figure per swept model. Omit all three flags and
+the run and its outputs are byte-for-byte the frozen-protocol behaviour.
+
 `analyze_robustness.py` also runs standalone against the existing part-1/2
 results, which is how the missing test-set bootstrap intervals for the current
 main table are produced:
@@ -241,15 +282,20 @@ python analyze_robustness.py --results-root ../baseline_benchmark/results/retail
 results_robustness/<dataset>/<axis>/<severity_tag>/seed_<seed>_<timestamp>/
 ├── metrics.csv            # baseline columns + axis, severity, severity_tag,
 │                          #   realized rates, n_train, degenerate, status,
-│                          #   equalization_reached, pehe, abs_ate_error
-├── predictions.parquet    # + axis, severity_tag, tau_true when known
+│                          #   equalization_reached, pehe, abs_ate_error,
+│                          #   base_model, hparam_tag/name/value, hparams_used
+├── predictions.parquet    # + axis, severity_tag, base_model, hparam_tag,
+│                          #   tau_true when known
 ├── resample_manifest.json # ResampleRecord per split + all diagnostics
 ├── data_manifest.json, run_config.json, splits.parquet, preprocessor.joblib
 ```
 
 Analysis writes `qini_bootstrap_<axis>_<metric>.csv`, `paired_<axis>_<metric>.csv`,
 `breakpoint_<axis>.csv`, `pehe_<axis>.csv`, `spearman_<axis>.csv`,
-`regime_map.md` and one figure per axis (matplotlib optional).
+`regime_map.md` and one figure per axis (matplotlib optional). When a
+hyperparameter sweep is present it also writes `breakpoint_hparam_<axis>.csv`,
+`hparam_breakpoints.csv`, `hparam_breakpoint_shift.csv` and the per-model
+`hparam_<dataset>_<axis>_<model>` figures.
 
 The bootstrap resamples evaluation rows with replacement, **paired across models
 within a seed** — so `CausalPFN − best alternative` gets a valid paired interval,
@@ -259,7 +305,7 @@ carries both row and split noise.
 ## Tests
 
 ```bash
-python -m pytest tests/test_robustness.py -q        # 63 tests, synthetic data only
+python -m pytest tests/test_robustness.py -q        # 67 tests, synthetic data only
 python -m pytest ../baseline_benchmark/tests/test_smoke.py -q   # 14, must stay green
 ```
 

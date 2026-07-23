@@ -35,7 +35,7 @@ import time
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -55,6 +55,7 @@ from robustness_tests.pehe import abs_ate_error, pehe  # noqa: E402
 from robustness_tests.prepare import DegenerateRegimeError, prepare_resampled_data  # noqa: E402
 from robustness_tests.registry import (  # noqa: E402
     available_robustness_models,
+    describe_hyperparameters,
     make_robustness_model,
     supports_pehe,
 )
@@ -189,6 +190,33 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--gp-max-treated", type=int, default=500)
     parser.add_argument("--gp-n-components", type=int, default=20)
 
+    # Hyperparameter-robustness variants. Each flag takes a comma-separated list
+    # of values for one model's single most decision-relevant hyperparameter. When
+    # a flag is given, that model is fitted once per value at *every* cell of the
+    # sweep, so the analysis can locate each value's breakpoint independently and
+    # report how far the hyperparameter moved it. The value matching the model's
+    # command-line default keeps the plain model name (so the standard H3 tables
+    # are unchanged); every other value gets a suffixed series id such as
+    # ``causalpfn#ctx1024``. Empty (the default) means a single fit at the default.
+    parser.add_argument(
+        "--causalpfn-context-variants",
+        default=None,
+        help=(
+            "Comma-separated CausalPFN max_context_length values to sweep, e.g. "
+            "'1024,4096'. Straddles the context window the scale axis attacks."
+        ),
+    )
+    parser.add_argument(
+        "--gp-component-variants",
+        default=None,
+        help="Comma-separated GP-CATE n_components (PCA) values to sweep, e.g. '10,20,40'.",
+    )
+    parser.add_argument(
+        "--q-min-converters-variants",
+        default=None,
+        help="Comma-separated Q-Learner min_converters thresholds to sweep, e.g. '50,100'.",
+    )
+
     # Semi-synthetic generator.
     parser.add_argument("--semisynth-covariates", default="gaussian:20000x10")
     parser.add_argument("--semisynth-base-rate", type=float, default=0.05)
@@ -259,6 +287,98 @@ def _model_kwargs(args: argparse.Namespace, model_name: str, seed: int) -> dict[
         "max_treated": args.gp_max_treated,
         "n_components": args.gp_n_components,
     }
+
+
+class HParamVariant(NamedTuple):
+    """One hyperparameter setting a model is fitted under within a cell.
+
+    ``model_id`` is the identity written to ``metrics.csv`` and
+    ``predictions.parquet``: the plain base name for the default value (so paired
+    bootstraps and the existing H3 tables are untouched) and a suffixed id such as
+    ``causalpfn#ctx1024`` for every other value. ``overrides`` are the constructor
+    kwargs that differ from the command-line defaults.
+    """
+
+    tag: str
+    model_id: str
+    hparam_name: str
+    hparam_value: Optional[Any]
+    overrides: dict[str, Any]
+
+
+#: Per-model: the CLI attribute holding the variant list, the constructor keyword
+#: it maps to, the attribute holding that keyword's default, and a short id prefix.
+_VARIANT_SPECS: dict[str, tuple[str, str, str, str]] = {
+    "causalpfn": ("causalpfn_context_variants", "max_context_length", "causalpfn_max_context_length", "ctx"),
+    "gp_cate": ("gp_component_variants", "n_components", "gp_n_components", "ncomp"),
+    "q_learner": ("q_min_converters_variants", "min_converters", "q_min_converters", "minconv"),
+    "q_learner_ratio": ("q_min_converters_variants", "min_converters", "q_min_converters", "minconv"),
+}
+
+
+def _parse_int_list(value: Optional[str]) -> list[int]:
+    if value is None or not str(value).strip():
+        return []
+    parsed: list[int] = []
+    for item in str(value).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        number = int(item)
+        if number not in parsed:
+            parsed.append(number)
+    return parsed
+
+
+def _model_variants(args: argparse.Namespace, model_name: str) -> list[HParamVariant]:
+    """Expand one model into the hyperparameter settings it will be fitted under.
+
+    Returns a single default variant when the model has no ``--*-variants`` flag,
+    keeping the undegraded behaviour byte-for-byte. Otherwise the model's default
+    value is always included (so the standard tables still have their series) and
+    every distinct value is emitted, the default one plain and the rest suffixed.
+    """
+    spec = _VARIANT_SPECS.get(model_name)
+    values = _parse_int_list(getattr(args, spec[0])) if spec else []
+    if not values:
+        return [HParamVariant("default", model_name, "", None, {})]
+
+    _, key, default_attr, prefix = spec
+    default_value = int(getattr(args, default_attr))
+    ordered = sorted({default_value, *values})
+    variants: list[HParamVariant] = []
+    for value in ordered:
+        if value == default_value:
+            # The default value keeps the plain model id; overrides stay empty so
+            # _model_kwargs' own default is used unchanged.
+            variants.append(HParamVariant("default", model_name, key, value, {}))
+        else:
+            tag = f"{prefix}{value}"
+            variants.append(HParamVariant(tag, f"{model_name}#{tag}", key, value, {key: value}))
+    return variants
+
+
+def _fit_count(args: argparse.Namespace, models: list[str]) -> int:
+    """Total model fits per cell, counting each hyperparameter variant once."""
+    return sum(len(_model_variants(args, model)) for model in models)
+
+
+def _describe_variants(args: argparse.Namespace) -> list[str]:
+    """Human-readable summary of the active hyperparameter sweeps, for --dry-run."""
+    lines: list[str] = []
+    for model_name, (attr, key, default_attr, _prefix) in _VARIANT_SPECS.items():
+        # q_learner_ratio shares q_learner's flag; describe the pair once.
+        if model_name == "q_learner_ratio":
+            continue
+        values = _parse_int_list(getattr(args, attr))
+        if not values:
+            continue
+        default_value = int(getattr(args, default_attr))
+        expanded = sorted({default_value, *values})
+        lines.append(
+            f"{model_name}: {key} in {expanded} (default {default_value})"
+        )
+    return lines
 
 
 def _evaluation_arrays(resampled, evaluation_split: str):
@@ -411,11 +531,25 @@ def run_cell(
         "seed": seed,
         "evaluation_split": args.evaluation_split,
         "degrade_splits": args.degrade_splits or axis.default_degrade_splits,
+        # Hyperparameter-variant defaults. Every fitted row overwrites these with
+        # its own variant; reused baseline rows keep them, marking them as the
+        # undegraded default configuration.
+        "base_model": None,
+        "hparam_tag": "default",
+        "hparam_name": "",
+        "hparam_value": None,
     }
 
     reused_metrics, reused_predictions = _try_reuse(
         args, dataset, axis, severity, seed, models, base_row
     )
+    if not reused_predictions.empty:
+        # Reused baseline rows are, by construction, the undegraded anchor at each
+        # model's default hyperparameters. Tag them so the concatenated
+        # predictions frame is schema-consistent with the freshly fitted rows.
+        reused_predictions = reused_predictions.copy()
+        reused_predictions["base_model"] = reused_predictions["model"].astype(str)
+        reused_predictions["hparam_tag"] = "default"
     reused_models = (
         set(reused_metrics["model"].astype(str)) if not reused_metrics.empty else set()
     )
@@ -522,63 +656,82 @@ def run_cell(
         prediction_frames.append(reused_predictions)
 
     for model_name in models_to_fit:
-        kwargs = _model_kwargs(args, model_name, seed)
-        kwargs.update(frozen.get(model_name, {}))
-        row: dict[str, Any] = {**shared_row, "model": model_name}
-        try:
-            model = make_robustness_model(model_name, **kwargs)
-            fit_start = time.perf_counter()
-            model.fit(
-                data.X_train, data.t_train, data.y_train,
-                data.X_val, data.t_val, data.y_val,
-            )
-            row["fit_seconds"] = time.perf_counter() - fit_start
-            predict_start = time.perf_counter()
-            cate = np.asarray(model.predict_cate(X_eval), dtype=float)
-            row["predict_seconds"] = time.perf_counter() - predict_start
-            if cate.shape != y_eval.shape or not np.isfinite(cate).all():
-                raise RuntimeError(f"{model_name} returned invalid CATE predictions")
+        for variant in _model_variants(args, model_name):
+            kwargs = _model_kwargs(args, model_name, seed)
+            kwargs.update(frozen.get(model_name, {}))
+            # The variant override wins over both the CLI default and any frozen
+            # value, since sweeping the hyperparameter is the whole point.
+            kwargs.update(variant.overrides)
+            row: dict[str, Any] = {
+                **shared_row,
+                "model": variant.model_id,
+                "base_model": model_name,
+                "hparam_tag": variant.tag,
+                "hparam_name": variant.hparam_name,
+                "hparam_value": variant.hparam_value,
+            }
+            try:
+                model = make_robustness_model(model_name, **kwargs)
+                fit_start = time.perf_counter()
+                model.fit(
+                    data.X_train, data.t_train, data.y_train,
+                    data.X_val, data.t_val, data.y_val,
+                )
+                row["fit_seconds"] = time.perf_counter() - fit_start
+                # Record the hyperparameters the estimator actually used, after any
+                # internal clamping (e.g. GP-CATE reducing n_components on a thin
+                # arm). Serialised so a single metrics.csv cell is self-describing.
+                row["hparams_used"] = json.dumps(
+                    describe_hyperparameters(model, model_name), default=str, sort_keys=True
+                )
+                predict_start = time.perf_counter()
+                cate = np.asarray(model.predict_cate(X_eval), dtype=float)
+                row["predict_seconds"] = time.perf_counter() - predict_start
+                if cate.shape != y_eval.shape or not np.isfinite(cate).all():
+                    raise RuntimeError(f"{model_name} returned invalid CATE predictions")
 
-            row.update(evaluate_uplift(y_eval, cate, t_eval))
-            if tau_eval is not None and supports_pehe(model_name):
-                row["pehe"] = pehe(tau_eval, cate)
-                row["abs_ate_error"] = abs_ate_error(tau_eval, cate)
-            elif tau_eval is not None:
-                # Ratio-scale scores are not comparable to a difference-scale
-                # ground truth; ranking metrics above still apply.
-                row["pehe"] = float("nan")
-                row["abs_ate_error"] = float("nan")
-            row["status"] = "ok"
+                row.update(evaluate_uplift(y_eval, cate, t_eval))
+                if tau_eval is not None and supports_pehe(model_name):
+                    row["pehe"] = pehe(tau_eval, cate)
+                    row["abs_ate_error"] = abs_ate_error(tau_eval, cate)
+                elif tau_eval is not None:
+                    # Ratio-scale scores are not comparable to a difference-scale
+                    # ground truth; ranking metrics above still apply.
+                    row["pehe"] = float("nan")
+                    row["abs_ate_error"] = float("nan")
+                row["status"] = "ok"
 
-            frame = pd.DataFrame(
-                {
-                    "epk_id": id_eval,
-                    "dataset": dataset,
-                    "outcome": data.outcome,
-                    "axis": axis.name,
-                    "severity_tag": severity_tag,
-                    "model": model_name,
-                    "seed": seed,
-                    "evaluation_split": args.evaluation_split,
-                    "T": t_eval,
-                    "Y": y_eval,
-                    "cate_pred": cate,
-                }
-            )
-            if tau_eval is not None:
-                frame["tau_true"] = tau_eval
-            prediction_frames.append(frame)
-        except Exception as exc:  # noqa: BLE001 - one model must not kill the sweep
-            row["status"] = "error"
-            row["error"] = f"{type(exc).__name__}: {exc}"
-            print(
-                f"FAIL {dataset}/{axis.name}/{severity_tag}/seed_{seed}/{model_name}: {exc}",
-                flush=True,
-            )
-            if args.causalpfn_verbose:
-                traceback.print_exc()
-        metrics_rows.append(row)
-        print(json.dumps({k: v for k, v in row.items() if k != "error"}, default=str), flush=True)
+                frame = pd.DataFrame(
+                    {
+                        "epk_id": id_eval,
+                        "dataset": dataset,
+                        "outcome": data.outcome,
+                        "axis": axis.name,
+                        "severity_tag": severity_tag,
+                        "model": variant.model_id,
+                        "base_model": model_name,
+                        "hparam_tag": variant.tag,
+                        "seed": seed,
+                        "evaluation_split": args.evaluation_split,
+                        "T": t_eval,
+                        "Y": y_eval,
+                        "cate_pred": cate,
+                    }
+                )
+                if tau_eval is not None:
+                    frame["tau_true"] = tau_eval
+                prediction_frames.append(frame)
+            except Exception as exc:  # noqa: BLE001 - one model must not kill the sweep
+                row["status"] = "error"
+                row["error"] = f"{type(exc).__name__}: {exc}"
+                print(
+                    f"FAIL {dataset}/{axis.name}/{severity_tag}/seed_{seed}/{variant.model_id}: {exc}",
+                    flush=True,
+                )
+                if args.causalpfn_verbose:
+                    traceback.print_exc()
+            metrics_rows.append(row)
+            print(json.dumps({k: v for k, v in row.items() if k != "error"}, default=str), flush=True)
 
     pd.DataFrame(metrics_rows).to_csv(output_dir / "metrics.csv", index=False)
     if prediction_frames:
@@ -625,12 +778,24 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.dry_run:
         print(f"{len(matrix)} cells:")
         for dataset, axis, severity, seed, models in matrix:
+            fit_ids = [
+                variant.model_id
+                for model in models
+                for variant in _model_variants(args, model)
+            ]
             print(
                 f"  {dataset:<16} {axis.name:<14} {axis.tag(severity):<26} "
-                f"seed={seed:<3} models={','.join(models)}"
+                f"seed={seed:<3} fits={','.join(fit_ids)}"
             )
-        n_fits = sum(len(models) for *_, models in matrix)
+        n_fits = sum(_fit_count(args, models) for *_, models in matrix)
         print(f"\n{len(matrix)} cells, {n_fits} model fits.")
+        variant_lines = _describe_variants(args)
+        if variant_lines:
+            print("Hyperparameter variants:")
+            for line in variant_lines:
+                print(f"  {line}")
+        else:
+            print("No hyperparameter variants; each model fitted once at its default.")
         if frozen:
             print(f"Frozen hyperparameters loaded for: {sorted(frozen)}")
         else:

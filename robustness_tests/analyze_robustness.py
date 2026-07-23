@@ -43,6 +43,21 @@ from robustness_tests.pehe import ranking_agreement  # noqa: E402
 
 REFERENCE_MODEL = "causalpfn"
 CELL_KEYS = ("dataset", "axis", "severity_tag", "seed")
+#: Separator between a base model name and its hyperparameter-variant tag in the
+#: series id, e.g. ``causalpfn#ctx1024``. The sweep writes it; the analysis splits
+#: on it to recover which model a variant belongs to.
+VARIANT_SEP = "#"
+
+
+def base_model(model_id: str) -> str:
+    """The base estimator a (possibly hyperparameter-suffixed) series belongs to."""
+    return str(model_id).split(VARIANT_SEP, 1)[0]
+
+
+def hparam_tag(model_id: str) -> str:
+    """The variant tag of a series id, or ``'default'`` for the plain base name."""
+    parts = str(model_id).split(VARIANT_SEP, 1)
+    return parts[1] if len(parts) == 2 else "default"
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -213,7 +228,17 @@ def paired_comparisons(
         models = sorted({model for draws in seed_draws for model in draws})
         if reference not in models:
             continue
-        alternatives = [model for model in models if model != reference]
+        # A hyperparameter variant is never its own competitor: comparing
+        # causalpfn#ctx1024 against causalpfn#ctx4096 would answer a different
+        # question than "does this configuration still beat the baselines". The
+        # standard (unsuffixed) case has no same-base siblings, so this is a
+        # no-op there.
+        reference_base = base_model(reference)
+        alternatives = [
+            model
+            for model in models
+            if model != reference and base_model(model) != reference_base
+        ]
         if not alternatives:
             continue
 
@@ -321,6 +346,154 @@ def find_breakpoints(paired: pd.DataFrame, metrics_frame: pd.DataFrame) -> pd.Da
 
 
 # --------------------------------------------------------------------------
+# Hyperparameter influence on the breakpoint
+# --------------------------------------------------------------------------
+def _ordered_severity_tags(metrics_frame: pd.DataFrame, axis: str) -> list[str]:
+    """Severity tags for one axis, ordered anchor-first, most-degraded-last."""
+    spec = get_axis(axis)
+    sub = metrics_frame.loc[metrics_frame["axis"] == axis].drop_duplicates("severity_tag")
+
+    def order(severity: Any) -> float:
+        if severity is None or (isinstance(severity, str) and severity == "full"):
+            return spec.severity_order(None)
+        try:
+            return spec.severity_order(float(severity))
+        except (TypeError, ValueError):
+            return float("inf")
+
+    pairs = [(row["severity_tag"], order(row["severity"])) for _, row in sub.iterrows()]
+    return [tag for tag, _ in sorted(pairs, key=lambda pair: pair[1])]
+
+
+def variant_families(per_cell: dict[tuple, dict[str, Any]]) -> dict[str, list[str]]:
+    """Base models that were fitted under more than one hyperparameter setting."""
+    all_models = sorted({model for result in per_cell.values() for model in result["models"]})
+    families: dict[str, list[str]] = {}
+    for base in sorted({base_model(model) for model in all_models}):
+        members = sorted(model for model in all_models if base_model(model) == base)
+        if len(members) > 1:
+            families[base] = members
+    return families
+
+
+def _hparam_value_map(metrics_frame: pd.DataFrame) -> dict[str, Any]:
+    """Series id -> the swept hyperparameter value it was fitted with, if recorded."""
+    if "hparam_value" not in metrics_frame.columns:
+        return {}
+    mapping: dict[str, Any] = {}
+    for model, group in metrics_frame.dropna(subset=["model"]).groupby("model"):
+        values = group["hparam_value"].dropna().unique()
+        if len(values):
+            mapping[str(model)] = values[0]
+    return mapping
+
+
+def hyperparameter_influence(
+    per_cell: dict[tuple, dict[str, Any]],
+    metrics_frame: pd.DataFrame,
+    families: dict[str, list[str]],
+    metric: str,
+    reference: str,
+    level: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Locate each hyperparameter variant's breakpoint and its shift vs the default.
+
+    For every base model that was swept, each variant is compared -- paired,
+    exactly like the headline H3 test -- against the strongest model that is *not*
+    a sibling variant, and its breakpoint is found. The variant sharing the plain
+    base name is the reference default; the ``robustness_index`` (how many
+    severity steps in the variant survives before its advantage turns
+    significantly negative, or the full grid length if it never does) is compared
+    against that default to report how far the hyperparameter moved the breakpoint.
+    """
+    value_map = _hparam_value_map(metrics_frame)
+    per_variant_rows: list[dict[str, Any]] = []
+    for base, members in families.items():
+        for variant_id in members:
+            paired = paired_comparisons(per_cell, metric, variant_id, level)
+            breakpoints = find_breakpoints(paired, metrics_frame)
+            for _, row in breakpoints.iterrows():
+                per_variant_rows.append(
+                    {
+                        "dataset": row["dataset"],
+                        "axis": row["axis"],
+                        "metric": metric,
+                        "base_model": base,
+                        "model": variant_id,
+                        "hparam_tag": hparam_tag(variant_id),
+                        "hparam_value": value_map.get(variant_id),
+                        "is_default": hparam_tag(variant_id) == "default",
+                        "breaks": bool(row["breaks"]),
+                        "breakpoint_severity_tag": row["breakpoint_severity_tag"],
+                        "breakpoint_severity": row["breakpoint_severity"],
+                        "difference_at_breakpoint": row["difference_at_breakpoint"],
+                        "worst_difference": row["worst_difference"],
+                        "worst_severity_tag": row["worst_severity_tag"],
+                    }
+                )
+    per_variant = pd.DataFrame(per_variant_rows)
+    if per_variant.empty:
+        return per_variant, pd.DataFrame()
+
+    # robustness_index: position of the breakpoint along the ordered severity
+    # grid. A larger index means the advantage survived more degradation.
+    ordered_by_axis = {
+        axis: _ordered_severity_tags(metrics_frame, axis)
+        for axis in per_variant["axis"].unique()
+    }
+
+    def robustness_index(axis: str, breaks: bool, tag: Optional[str]) -> int:
+        order = ordered_by_axis.get(axis, [])
+        if not breaks or tag is None or tag not in order:
+            return len(order)  # never broke within the grid: maximally robust
+        return int(order.index(tag))
+
+    per_variant["n_severities"] = per_variant["axis"].map(
+        lambda axis: len(ordered_by_axis.get(axis, []))
+    )
+    per_variant["robustness_index"] = per_variant.apply(
+        lambda row: robustness_index(
+            row["axis"], row["breaks"], row["breakpoint_severity_tag"]
+        ),
+        axis=1,
+    )
+
+    shift_rows: list[dict[str, Any]] = []
+    for (dataset, axis, base), group in per_variant.groupby(
+        ["dataset", "axis", "base_model"]
+    ):
+        defaults = group.loc[group["is_default"]]
+        if defaults.empty:
+            continue
+        default_index = int(defaults.iloc[0]["robustness_index"])
+        default_tag = defaults.iloc[0]["breakpoint_severity_tag"]
+        for _, row in group.iterrows():
+            if row["is_default"]:
+                continue
+            shift = int(row["robustness_index"]) - default_index
+            shift_rows.append(
+                {
+                    "dataset": dataset,
+                    "axis": axis,
+                    "base_model": base,
+                    "hparam_tag": row["hparam_tag"],
+                    "hparam_value": row["hparam_value"],
+                    "variant_breaks": bool(row["breaks"]),
+                    "variant_breakpoint": row["breakpoint_severity_tag"],
+                    "default_breaks": bool(defaults.iloc[0]["breaks"]),
+                    "default_breakpoint": default_tag,
+                    # Steps the breakpoint moved: positive => this value survives
+                    # deeper into the degradation than the default (more robust);
+                    # negative => it breaks earlier (more fragile); 0 => unchanged.
+                    "breakpoint_shift_steps": shift,
+                    "more_robust_than_default": shift > 0,
+                    "more_fragile_than_default": shift < 0,
+                }
+            )
+    return per_variant, pd.DataFrame(shift_rows)
+
+
+# --------------------------------------------------------------------------
 # PEHE and the H2 agreement test
 # --------------------------------------------------------------------------
 def pehe_table(metrics: pd.DataFrame) -> pd.DataFrame:
@@ -413,6 +586,111 @@ def write_figures(pooled: pd.DataFrame, metric: str, output_dir: Path) -> list[s
     return written
 
 
+def write_hparam_figures(
+    pooled: pd.DataFrame,
+    families: dict[str, list[str]],
+    metric: str,
+    output_dir: Path,
+) -> list[str]:
+    """One severity-vs-metric figure per (dataset, axis, swept model), one line
+    per hyperparameter variant. This is the picture that shows, directly, whether
+    a hyperparameter moves the curve or leaves it on top of itself."""
+    if not families:
+        return []
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib is not installed; skipping hyperparameter figures.")
+        return []
+
+    members_by_base = {base: set(members) for base, members in families.items()}
+    written = []
+    for (dataset, axis), group in pooled.groupby(["dataset", "axis"]):
+        if axis not in AXES:
+            continue
+        for base, members in members_by_base.items():
+            family = group.loc[group["model"].isin(members)]
+            if family["model"].nunique() < 2:
+                continue
+            figure, ax = plt.subplots(figsize=(7, 4.2))
+            for model, series in family.groupby("model"):
+                series = series.sort_values("severity_tag")
+                x = np.arange(len(series))
+                label = "default" if base_model(model) == model else hparam_tag(model)
+                ax.plot(x, series["mean"], marker="o", label=label)
+                ax.fill_between(x, series["ci_low"], series["ci_high"], alpha=0.15)
+                ax.set_xticks(x)
+                ax.set_xticklabels(series["severity_tag"], rotation=30, ha="right", fontsize=7)
+            ax.axhline(0.0, color="black", linewidth=0.8, linestyle=":")
+            ax.set_title(f"{dataset} - {axis} - {base} (hyperparameter sweep)")
+            ax.set_ylabel(metric)
+            ax.legend(fontsize=7, title="variant")
+            figure.tight_layout()
+            path = output_dir / f"hparam_{dataset}_{axis}_{base}_{metric}.png"
+            figure.savefig(path, dpi=150)
+            plt.close(figure)
+            written.append(path.name)
+    return written
+
+
+def _hparam_markdown(
+    shift_summary: pd.DataFrame, per_variant: pd.DataFrame
+) -> list[str]:
+    """The 'which hyperparameters matter' section of the regime map."""
+    lines = ["", "## Hyperparameter influence on the breakpoint", ""]
+    if shift_summary.empty:
+        lines.append(
+            "_No hyperparameter variants in this sweep; pass e.g. "
+            "`--causalpfn-context-variants 1024,4096` to populate this section._"
+        )
+        return lines
+
+    lines.append(
+        "`breakpoint_shift_steps` counts severity grid steps: positive means the "
+        "value survived deeper into the degradation than the model's default "
+        "(more robust), negative means it broke earlier (more fragile), 0 means "
+        "the breakpoint did not move."
+    )
+    lines.append("")
+    lines.append(
+        "| dataset | axis | model | hyperparameter | default | variant break | shift (steps) |"
+    )
+    lines.append("|---|---|---|---|---|---|---|")
+    for _, row in shift_summary.sort_values(
+        ["dataset", "axis", "base_model", "hparam_value"]
+    ).iterrows():
+        variant_break = row["variant_breakpoint"] or ("no break" if not row["variant_breaks"] else "-")
+        default_break = row["default_breakpoint"] or ("no break" if not row["default_breaks"] else "-")
+        lines.append(
+            f"| {row['dataset']} | {row['axis']} | {row['base_model']} | "
+            f"{row['hparam_tag']} ({row['hparam_value']}) | {default_break} | "
+            f"{variant_break} | {row['breakpoint_shift_steps']:+d} |"
+        )
+
+    # A compact verdict per (model, hyperparameter): the largest absolute shift it
+    # produced across every axis and value tells the reader whether it is worth
+    # tuning at all.
+    lines += ["", "### Verdict: which hyperparameters are critical", ""]
+    verdict = (
+        shift_summary.assign(abs_shift=shift_summary["breakpoint_shift_steps"].abs())
+        .groupby("base_model")["abs_shift"]
+        .max()
+        .sort_values(ascending=False)
+    )
+    for base, max_shift in verdict.items():
+        if max_shift == 0:
+            note = "not critical: no value moved any breakpoint."
+        elif max_shift == 1:
+            note = "marginal: a single grid step at most."
+        else:
+            note = f"critical: shifts the breakpoint by up to {int(max_shift)} grid steps."
+        lines.append(f"- **{base}** — {note}")
+    return lines
+
+
 def write_regime_map(
     output_dir: Path,
     breakpoints: pd.DataFrame,
@@ -420,6 +698,8 @@ def write_regime_map(
     pooled: pd.DataFrame,
     metric: str,
     reference: str,
+    shift_summary: Optional[pd.DataFrame] = None,
+    per_variant: Optional[pd.DataFrame] = None,
 ) -> None:
     lines = [
         "# Regime breakdown map",
@@ -461,6 +741,9 @@ def write_regime_map(
                 f"| {row['dataset']} | {row['axis']} | {row['severity_tag']} | "
                 f"{row['n_methods']} | {row['spearman_rho']:.3f} | {row['p_value']:.3f} |"
             )
+
+    if shift_summary is not None:
+        lines += _hparam_markdown(shift_summary, per_variant if per_variant is not None else pd.DataFrame())
 
     lines += ["", "## Cells analysed", "", f"{len(pooled)} (dataset, axis, severity, model) rows.", ""]
     (output_dir / "regime_map.md").write_text("\n".join(lines), encoding="utf-8")
@@ -511,6 +794,22 @@ def main(argv: Optional[list[str]] = None) -> int:
                 output_dir / f"breakpoint_{axis}.csv", index=False
             )
 
+    # Hyperparameter influence: per swept model, how far each value moved the
+    # breakpoint relative to the model's default. Only populated when the sweep
+    # actually fitted more than one value for some model.
+    families = variant_families(per_cell)
+    per_variant, shift_summary = hyperparameter_influence(
+        per_cell, metrics, families, primary, args.reference_model, args.level
+    )
+    if not per_variant.empty:
+        per_variant.to_csv(output_dir / "hparam_breakpoints.csv", index=False)
+        for axis in sorted(per_variant["axis"].unique()):
+            per_variant.loc[per_variant["axis"] == axis].to_csv(
+                output_dir / f"breakpoint_hparam_{axis}.csv", index=False
+            )
+    if not shift_summary.empty:
+        shift_summary.to_csv(output_dir / "hparam_breakpoint_shift.csv", index=False)
+
     pehe_rows = pehe_table(metrics)
     spearman_rows = spearman_table(metrics)
     for frame, prefix in ((pehe_rows, "pehe"), (spearman_rows, "spearman")):
@@ -525,6 +824,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not args.no_figures and not pooled.empty:
         primary_pooled = pooled.loc[pooled["metric"] == primary]
         figures = write_figures(primary_pooled, primary, output_dir)
+        figures += write_hparam_figures(primary_pooled, families, primary, output_dir)
 
     write_regime_map(
         output_dir,
@@ -533,6 +833,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         pooled,
         primary,
         args.reference_model,
+        shift_summary,
+        per_variant,
     )
     (output_dir / "analysis_config.json").write_text(
         json.dumps(

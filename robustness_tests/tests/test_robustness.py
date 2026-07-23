@@ -501,14 +501,14 @@ def test_registry_delegates_without_touching_the_baseline_model_list():
     from baseline_benchmark.models import available_models
     from robustness_tests.registry import available_robustness_models, make_robustness_model
 
-    # The exact list asserted by baseline_benchmark's own smoke test.
-    assert available_models() == [
-        "t_learner",
-        "x_learner",
-        "dr_learner",
-        "dragonnet",
-        "causalpfn",
-    ]
+    # The registry must delegate without leaking its own estimators into the
+    # baseline list. The five core models must all still be offered there; the
+    # baseline set may legitimately grow (e.g. CausalPFN fine-tuning variants),
+    # so this checks membership rather than an exact list.
+    baseline = available_models()
+    for core in ("t_learner", "x_learner", "dr_learner", "dragonnet", "causalpfn"):
+        assert core in baseline, core
+    assert "q_learner" not in baseline and "gp_cate" not in baseline
     assert "q_learner" in available_robustness_models()
     assert make_robustness_model("t_learner", seed=1, max_iter=5).name == "t_learner"
     assert make_robustness_model("q_learner", seed=1, max_iter=5).name == "q_learner"
@@ -706,6 +706,141 @@ def test_dry_run_prints_the_expected_matrix(capsys):
     output = capsys.readouterr().out
     assert "4 cells" in output
     assert "8 model fits" in output
+
+
+def test_model_variants_default_when_no_flag_given():
+    from run_robustness import parse_args, _model_variants, _fit_count
+
+    args = parse_args(["--datasets", "semisynth_x"])
+    for model in ("t_learner", "causalpfn", "gp_cate", "q_learner"):
+        variants = _model_variants(args, model)
+        assert len(variants) == 1
+        assert variants[0].model_id == model
+        assert variants[0].tag == "default"
+    # One fit per model with no variants.
+    assert _fit_count(args, ["t_learner", "gp_cate"]) == 2
+
+
+def test_model_variants_expand_and_keep_the_default_plain():
+    from run_robustness import parse_args, _model_variants, _fit_count
+
+    args = parse_args(
+        [
+            "--datasets", "semisynth_x",
+            "--gp-component-variants", "3,5",  # default is 20
+            "--causalpfn-context-variants", "1024,4096",  # default is 4096
+            "--q-min-converters-variants", "50,100",  # default is 50
+        ]
+    )
+    gp = {variant.model_id: variant for variant in _model_variants(args, "gp_cate")}
+    # 3, 5 and the default 20 -> three fits; the default keeps the plain name.
+    assert set(gp) == {"gp_cate", "gp_cate#ncomp3", "gp_cate#ncomp5"}
+    assert gp["gp_cate"].overrides == {} and gp["gp_cate"].hparam_value == 20
+    assert gp["gp_cate#ncomp3"].overrides == {"n_components": 3}
+
+    context = {variant.model_id for variant in _model_variants(args, "causalpfn")}
+    # 4096 equals the default, so it is the plain series; only 1024 is suffixed.
+    assert context == {"causalpfn", "causalpfn#ctx1024"}
+
+    # q_learner and q_learner_ratio share the one flag.
+    for model in ("q_learner", "q_learner_ratio"):
+        ids = {variant.model_id for variant in _model_variants(args, model)}
+        assert ids == {model, f"{model}#minconv100"}
+
+    assert _fit_count(args, ["t_learner", "gp_cate"]) == 1 + 3
+
+
+def test_variant_sweep_writes_hyperparameter_columns(tmp_path):
+    _skip_without_sklearn()
+    from run_robustness import main
+
+    exit_code = main(
+        [
+            "--datasets", "semisynth_smoke",
+            "--axes", "control_share",
+            "--severities", "0.5,0.9",
+            "--seeds", "0,1",
+            "--models", "t_learner,gp_cate",
+            "--gp-component-variants", "3,5",
+            # Small GP caps keep the exact O(n^3) fit fast in tests.
+            "--gp-max-control", "120",
+            "--gp-max-treated", "80",
+            "--semisynth-covariates", "gaussian:6000x6",
+            "--semisynth-base-rate", "0.2",
+            "--semisynth-ate", "0.05",
+            "--tree-max-iter", "20",
+            "--output-root", str(tmp_path),
+            "--no-diagnostics",
+        ]
+    )
+    assert exit_code == 0
+
+    metrics = pd.concat(
+        [pd.read_csv(path) for path in tmp_path.glob("**/metrics.csv")], ignore_index=True
+    )
+    for column in ("base_model", "hparam_tag", "hparam_name", "hparam_value", "hparams_used"):
+        assert column in metrics.columns, column
+    # gp_cate default (20) stays plain; 3 and 5 get suffixed series ids.
+    gp_ids = set(metrics.loc[metrics["base_model"] == "gp_cate", "model"])
+    assert gp_ids == {"gp_cate", "gp_cate#ncomp3", "gp_cate#ncomp5"}
+    # t_learner is not swept, so it keeps its single default series.
+    assert set(metrics.loc[metrics["base_model"] == "t_learner", "hparam_tag"]) == {"default"}
+    # The realized hyperparameters are logged for a fitted gp_cate row.
+    fitted = metrics.loc[(metrics["model"] == "gp_cate#ncomp3") & (metrics["status"] == "ok")]
+    assert not fitted.empty
+    assert json.loads(fitted.iloc[0]["hparams_used"]) ["n_components"] == 3
+
+    # Every variant lands, paired, in one predictions file per cell.
+    predictions = pd.concat(
+        [pd.read_parquet(path) for path in tmp_path.glob("**/predictions.parquet")],
+        ignore_index=True,
+    )
+    assert "hparam_tag" in predictions.columns
+    assert {"gp_cate", "gp_cate#ncomp3", "gp_cate#ncomp5"}.issubset(set(predictions["model"]))
+
+
+def test_analysis_reports_hyperparameter_influence(tmp_path):
+    _skip_without_sklearn()
+    from analyze_robustness import main as analyze_main
+    from run_robustness import main as sweep_main
+
+    sweep_main(
+        [
+            "--datasets", "semisynth_smoke",
+            "--axes", "control_share",
+            "--severities", "0.5,0.9,0.98",
+            "--seeds", "0,1",
+            "--models", "t_learner,x_learner,gp_cate",
+            "--gp-component-variants", "3,5",
+            "--gp-max-control", "120",
+            "--gp-max-treated", "80",
+            "--semisynth-covariates", "gaussian:6000x6",
+            "--semisynth-base-rate", "0.2",
+            "--semisynth-ate", "0.05",
+            "--tree-max-iter", "20",
+            "--output-root", str(tmp_path),
+            "--no-diagnostics",
+        ]
+    )
+    exit_code = analyze_main(
+        [
+            "--results-root", str(tmp_path),
+            "--n-bootstrap", "50",
+            "--reference-model", "gp_cate",
+            "--no-figures",
+        ]
+    )
+    assert exit_code == 0
+
+    analysis = tmp_path / "analysis"
+    per_variant = analysis / "hparam_breakpoints.csv"
+    assert per_variant.exists(), "a swept model must produce a per-variant breakpoint table"
+    frame = pd.read_csv(per_variant)
+    # Every gp_cate variant is represented, and the default one is flagged.
+    assert set(frame["hparam_tag"]) >= {"default", "ncomp3", "ncomp5"}
+    assert frame.loc[frame["hparam_tag"] == "default", "is_default"].all()
+    text = (analysis / "regime_map.md").read_text(encoding="utf-8")
+    assert "Hyperparameter influence on the breakpoint" in text
 
 
 def test_end_to_end_sweep_writes_a_usable_schema(tmp_path):
