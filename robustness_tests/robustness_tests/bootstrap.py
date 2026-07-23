@@ -32,6 +32,28 @@ from baseline_benchmark.metrics import _area, qini_curve, uplift_at_k  # noqa: E
 
 DEFAULT_METRICS = ("qini_auc_normalized", "uplift_at_10pct")
 CELL_KEYS = ("dataset", "outcome", "axis", "severity_tag", "seed")
+#: Per-model hyperparameter columns the sweep writes into ``predictions.parquet``.
+#: Carried through the bootstrap so the interval tables record which value each
+#: series was fitted with, without the bootstrap having to understand any of them.
+HPARAM_COLUMNS = ("base_model", "hparam_tag", "hparam_name", "hparam_value")
+
+
+def _hparam_metadata(cell: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    """Map each model in the cell to its (constant) hyperparameter annotation.
+
+    A well-formed cell fits one hyperparameter value per model series, so every
+    ``hparam_*`` column is constant within a model. If a series somehow carries
+    more than one value the first is kept and the rest ignored -- the annotation
+    is descriptive metadata, never an input to the estimate.
+    """
+    present = [column for column in HPARAM_COLUMNS if column in cell.columns]
+    if not present:
+        return {}
+    metadata: dict[str, dict[str, Any]] = {}
+    for model, group in cell.groupby(cell["model"].astype(str)):
+        first = group.iloc[0]
+        metadata[str(model)] = {column: first[column] for column in present}
+    return metadata
 
 
 def _perfect_qini_area(y: np.ndarray, t: np.ndarray) -> float:
@@ -107,6 +129,7 @@ def bootstrap_cell(
     seeds and form paired differences without re-running anything.
     """
     y, t, scores = _wide_predictions(cell)
+    hparams = _hparam_metadata(cell)
     n = len(y)
     if n < 2:
         raise ValueError("A bootstrap needs at least two evaluation rows")
@@ -160,6 +183,7 @@ def bootstrap_cell(
         "models": sorted(scores),
         "point": point,
         "draws": draws,
+        "hparams": hparams,
     }
 
 
@@ -265,6 +289,7 @@ def bootstrap_predictions_frame(
                         **percentile_interval(result["draws"][metric][model], level=level),
                         "n_rows": result["n_rows"],
                         "n_failed_resamples": result["n_failed_resamples"],
+                        **result.get("hparams", {}).get(model, {}),
                     }
                 )
     return pd.DataFrame(rows), per_cell
