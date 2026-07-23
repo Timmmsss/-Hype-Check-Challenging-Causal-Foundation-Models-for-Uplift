@@ -105,6 +105,24 @@ class _QLearnerBase:
         self.n_converters_ = n_converters
         return self
 
+    def hyperparameters(self) -> dict:
+        """The hyperparameters this estimator was built and fitted with.
+
+        Logged into the sweep's ``metrics.csv`` so a robustness run over several
+        ``min_converters`` thresholds records, per cell, which threshold produced
+        each row and how many converters the degraded sample actually had -- the
+        quantity ``min_converters`` gates on. When ``n_converters`` sits just above
+        the threshold, the converter propensity ``p(x)`` is fitted on very few
+        rows, which is exactly the fragility the conversion axis is probing.
+        """
+        return {
+            "model": self.name,
+            "seed": self.seed,
+            "scale": self.scale,
+            "min_converters": self.min_converters,
+            "n_converters": getattr(self, "n_converters_", None),
+        }
+
     def _nuisances(self, X) -> tuple[np.ndarray, np.ndarray]:
         if not hasattr(self, "n_features_in_"):
             raise RuntimeError(f"{self.name} must be fitted before predict_cate")

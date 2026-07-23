@@ -65,6 +65,47 @@ def make_robustness_model(name: str, **kwargs: Any):
     )
 
 
+#: The single hyperparameter each swept model varies along, with the constructor
+#: keyword it maps to. The robustness runner reads this so one ``--*-variants``
+#: flag per model expands into per-value fits without hard-coding the mapping in
+#: three places. ``max_context_length`` is CausalPFN's, forwarded through
+#: ``make_model``'s own kwargs filter.
+SWEEPABLE_HYPERPARAMETERS: dict[str, str] = {
+    "causalpfn": "max_context_length",
+    "gp_cate": "n_components",
+    "q_learner": "min_converters",
+    "q_learner_ratio": "min_converters",
+}
+
+
+def describe_hyperparameters(model: Any, name: str) -> dict[str, Any]:
+    """Best-effort record of the hyperparameters a fitted model actually used.
+
+    Prefers the estimator's own ``hyperparameters()`` (the robustness specialists
+    expose one, reporting the *realized* settings after any internal clamping),
+    and otherwise falls back to reading the public constructor attributes off the
+    baseline estimators. Returned as plain JSON-safe scalars so the runner can
+    drop it straight into ``metrics.csv``.
+    """
+    if hasattr(model, "hyperparameters") and callable(model.hyperparameters):
+        try:
+            raw = dict(model.hyperparameters())
+        except Exception:  # noqa: BLE001 - metadata must never break a fit
+            raw = {}
+    else:
+        keys = (
+            "seed", "max_iter", "max_leaf_nodes", "learning_rate", "n_folds",
+            "epochs", "batch_size", "hidden_dim", "patience",
+            "max_context_length", "max_query_length", "num_neighbours",
+        )
+        raw = {key: getattr(model, key) for key in keys if hasattr(model, key)}
+    scalar: dict[str, Any] = {}
+    for key, value in raw.items():
+        scalar[key] = value if isinstance(value, (int, float, str, bool, type(None))) else str(value)
+    scalar.setdefault("model", name)
+    return scalar
+
+
 def supports_pehe(name: str) -> bool:
     """Whether a model's score is on the difference-CATE scale.
 
