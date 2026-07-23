@@ -121,9 +121,34 @@ class GPCATE:
         self.gp0_ = self._fit_arm(X_projected[control], y[control], self.seed)
         self.gp1_ = self._fit_arm(X_projected[treated], y[treated], self.seed + 1)
         self.n_features_in_ = X.shape[1]
+        self.n_components_used_ = int(n_components)
         self.n_control_used_ = int(len(control))
         self.n_treated_used_ = int(len(treated))
         return self
+
+    def hyperparameters(self) -> dict:
+        """The hyperparameters this estimator was built and fitted with.
+
+        Logged into the sweep's ``metrics.csv`` so that a robustness run over
+        several ``n_components`` values records, per cell, *which* value produced
+        each row -- and, once fitted, how many components and arm rows were
+        actually used after the PCA and per-arm caps clamped the requested
+        settings. ``n_components`` in particular is silently reduced when the
+        degraded arm has fewer rows than components requested, and that reduction
+        is itself part of the robustness story.
+        """
+        return {
+            "model": self.name,
+            "seed": self.seed,
+            "max_control": self.max_control,
+            "max_treated": self.max_treated,
+            "n_components": self.n_components,
+            "n_restarts": self.n_restarts,
+            "alpha": self.alpha,
+            "n_components_used": getattr(self, "n_components_used_", None),
+            "n_control_used": getattr(self, "n_control_used_", None),
+            "n_treated_used": getattr(self, "n_treated_used_", None),
+        }
 
     # ------------------------------------------------------------------
     def _project(self, X) -> np.ndarray:
