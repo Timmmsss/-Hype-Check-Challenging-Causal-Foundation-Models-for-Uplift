@@ -1,0 +1,8 @@
+dataset,axis,severity_tag,model,metric,n_seeds,mean,ci_low,ci_high,n_draws
+retailhero,baseline,baseline_full,constant_ate,qini_auc_normalized,2,0.0,0.0,0.0,600
+retailhero,baseline,baseline_full,dr_learner,qini_auc_normalized,2,0.10616734140808859,-0.007509229092681486,0.20273456057160552,600
+retailhero,baseline,baseline_full,s_learner,qini_auc_normalized,2,0.07535415483846616,-0.05471883826208044,0.18961310769810372,600
+retailhero,baseline,baseline_full,t_learner,qini_auc_normalized,2,0.06261786950990694,-0.02696736362555797,0.15473111410463852,600
+retailhero,baseline,baseline_full,x_learner,qini_auc_normalized,2,0.08972136145598732,-0.0033517970657046463,0.2059753173419826,600
+retailhero,baseline,baseline_full,dragonnet,qini_auc_normalized,2,-0.018472028661475702,-0.19446118672744137,0.1888690087938263,600
+retailhero,baseline,baseline_full,tarnet,qini_auc_normalized,3,-0.0181673208478934,-0.18617071882859743,0.17457282254019824,900

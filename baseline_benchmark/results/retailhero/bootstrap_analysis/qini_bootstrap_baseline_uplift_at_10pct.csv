@@ -1,0 +1,8 @@
+dataset,axis,severity_tag,model,metric,n_seeds,mean,ci_low,ci_high,n_draws
+retailhero,baseline,baseline_full,constant_ate,uplift_at_10pct,2,0.026654842792802533,-0.20003337041156846,0.2458116230175054,600
+retailhero,baseline,baseline_full,dr_learner,uplift_at_10pct,2,0.07056964060085034,-0.24250202922077913,0.31710797020527504,600
+retailhero,baseline,baseline_full,s_learner,uplift_at_10pct,2,0.14946988892867058,-0.18328523328523322,0.39591311187808564,600
+retailhero,baseline,baseline_full,t_learner,uplift_at_10pct,2,0.1382763102250993,-0.1518105158730159,0.3642258176615298,600
+retailhero,baseline,baseline_full,x_learner,uplift_at_10pct,2,-0.01502221992658325,-0.23905141602095378,0.22704940012712527,600
+retailhero,baseline,baseline_full,dragonnet,uplift_at_10pct,2,0.08511433029609035,-0.18668749999999998,0.3838699805451721,600
+retailhero,baseline,baseline_full,tarnet,uplift_at_10pct,3,0.04074074966655455,-0.33958333333333307,0.4105561105561104,900

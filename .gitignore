@@ -16,3 +16,10 @@ __pycache__/
 build/
 dist/
 
+
+# Robustness sweep outputs
+robustness_tests/results_robustness/
+
+# Raw and cleaned datasets (multi-GB, kept out of git)
+data/
+data_A_cleaned/

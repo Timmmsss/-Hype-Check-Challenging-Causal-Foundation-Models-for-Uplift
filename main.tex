@@ -1,0 +1,370 @@
+% Requires style.cls, the logo, and references.bib alongside.
+
+\documentclass[twocolumn]{style}
+\runninghead{SMILES Summer School Projects Proceedings}
+\footertext{\textit{SMILES} 2026}
+\addbibresource{references.bib}
+
+\title{Hype Check: Challenging Causal Foundation Models for Uplift}
+\logo{SKOLTECH_MACHINE-LEA.png}
+
+\author{
+    Vadim Porvatov\textsuperscript{1}
+}
+\date{
+    \textsuperscript{\textbf{1}}
+    PJSC Sberbank, Moscow, Russia
+}
+
+\begin{document}
+\twocolumn[\maketitle]
+\small
+
+\begin{abstract}
+    \noindent Causal foundation models such as CausalPFN estimate conditional average treatment
+    effects (CATE) in context, without per-dataset training, and report strong results on academic
+    benchmarks. Uplift modeling, however, is mainly a ranking problem: the goal is to decide which
+    units to treat under a budget, not to recover each effect exactly. It is therefore unclear
+    whether this advantage holds on real campaigns under a modest compute budget. We first compare
+    an untuned CausalPFN with strong tuned baselines on ranking quality, and we test whether effect
+    accuracy predicts it. We then identify the regimes where the advantage disappears: data beyond
+    the context window, a small control group, and low conversion. Finally, we propose
+    CausalPFN-Rank, a training-free adaptation that improves the in-context sample and re-ranks the
+    model outputs, and we measure how much ranking quality it recovers. All comparisons are
+    relative, use bootstrap confidence intervals, and cover both real randomized trials and
+    semi-synthetic data.
+\end{abstract}
+
+\noindent\small{\textbf{Index Terms:} Uplift modeling, conditional average treatment effect,
+causal foundation models, in-context learning, ranking evaluation.}
+
+\section{Introduction}
+Marketing and retention decisions depend on uplift, the incremental effect of an action on an
+individual, formalized as the conditional average treatment effect (CATE). In practice the exact
+effect value matters less than a good ordering of units by incremental response, so that a limited
+budget reaches the most persuadable customers first. Ranking quality is therefore measured with the
+Qini coefficient and the area under the uplift curve, not with pointwise error.
+
+Causal foundation models are transformers pre-trained on large collections of simulated causal
+models. They estimate CATE in context, with no task-specific training, and report strong benchmark
+results~\cite{balazadeh2025causalpfn, robertson2025dopfn, causalfm2025}. The most mature open model,
+CausalPFN, ships with pre-trained weights, a simple estimator interface, and calibrated
+uncertainty~\cite{balazadeh2025causalpfn}. Recent evidence, though, shows that benchmark accuracy
+and real ranking quality can diverge. A large-scale study reports a plain S-Learner topping the Qini
+ranking among classical methods~\cite{singh2026criteobench}, and a benchmark on field-collected data
+finds most CATE estimates no more accurate than a constant-effect predictor~\cite{yu2024cate}.
+
+We ask whether causal foundation models improve uplift ranking under realistic constraints, where
+they break, and whether a lightweight fix repairs them. We propose CausalPFN-Rank, a training-free
+adaptation that selects a better in-context sample and re-ranks the model outputs for the ranking
+objective. The project has three parts: investigate the model, find where it breaks, and fix it.
+
+\subsection{Hypotheses}
+\begin{itemize}
+    \item \textit{\textbf{H1:}} Without tuning, CausalPFN matches strong tuned baselines on
+    semi-synthetic effect accuracy, but does not beat them on ranking on real campaigns.
+    \item \textit{\textbf{H2:}} Ordering methods by effect accuracy (PEHE) agrees only weakly with
+    ordering them by uplift (Qini), so the most accurate estimator is often not the one that ranks
+    units best.
+    \item \textit{\textbf{H3:}} The advantage disappears in three regimes: data beyond the context
+    window, a small control group, and low conversion.
+    \item \textit{\textbf{H4:}} Engineered context, balancing treated and control and averaging over
+    several retrieved samples, recovers much of the ranking lost in the scale and small-control
+    regimes, with no training.
+    \item \textit{\textbf{H5:}} Re-ranking the outputs improves uplift even when effect accuracy is
+    unchanged, narrowing the gap to specialist methods.
+\end{itemize}
+
+\subsection{Goals}
+\begin{itemize}
+    \item \textbf{G1:} Build a reproducible uplift-evaluation harness wrapping CausalPFN and the
+    baselines over the dataset pool, and reproduce CausalPFN's own uplift example as an early
+    feasibility check.
+    \item \textbf{G2:} Map the regimes where the advantage breaks by controlled subsampling,
+    reporting uplift metrics with bootstrap confidence intervals, effect accuracy where ground truth
+    exists, and the correlation between the two rankings.
+    \item \textbf{G3:} Build and ablate CausalPFN-Rank, its context part and its output part, and
+    report how much ranking each part recovers, with compute cost.
+\end{itemize}
+
+\subsection{Significance of Hypotheses Confirmation}
+If validated:
+\begin{itemize}
+    \item \textit{Practical relevance:} a rule for when an untuned foundation model is enough for
+    ranking, and when a tuned classical method or a specialist is worth the effort under a fixed
+    budget.
+    \item \textit{Methodological value:} evaluation of causal foundation models shifts toward the
+    decision objective rather than effect accuracy, and the post-processing recipe applies to any
+    in-context causal model.
+    \item \textit{Reusable benchmark:} the harness and the map of where the model helps or breaks
+    stay useful for a fast-moving area.
+\end{itemize}
+
+\subsection{Validation Protocol}
+\paragraph{Datasets:} The pool is small and chosen to span the regimes of interest, not to maximize
+count. Real randomized data without ground-truth effects: Criteo Uplift and X5 RetailHero at large
+scale~\cite{diemert2018criteo}, and Hillstrom, which is small and low-conversion~\cite{hillstrom2008}.
+Semi-synthetic data with ground-truth effects: IHDP~\cite{hill2011ihdp} and ACIC~2016~\cite{dorie2019acic}.
+We subsample large tables for the scale axis and re-sample for the control-share and conversion axes.
+
+\paragraph{Metrics:}
+\begin{itemize}
+    \item Ranking: the Qini coefficient and uplift at the top fraction, with bootstrap confidence
+    intervals over at least ten seeds.
+    \item Accuracy: PEHE against ground-truth effects on semi-synthetic data.
+    \item Agreement: Spearman correlation between the PEHE-based and Qini-based rankings of the
+    methods.
+    \item Efficiency, logged separately: GPU-hours and inference time.
+\end{itemize}
+
+\paragraph{Baselines:} The tuned classical core is the S-, T-, X- and DR-Learners on gradient
+boosting, plus the Causal Forest~\cite{athey2019grf, battocchi2019econml,
+kennedy2023drlearner, kunzel2019metalearners, nie2021rlearner, wager2018causalforest}. We add the
+Bayesian Causal Forest and the neural learners DragonNet, TARNet, CFR and
+DESCN~\cite{curth2021catenets, hahn2020bcf, shalit2017cfr, shi2019dragonnet,
+zhong2022descn}. Two 2026 specialists run on their own regime: the Q-Learner for low conversion
+and GP-CATE for a small control group~\cite{fuchs2026qlearner, gpcate2026}. CausalPFN is the
+foundation anchor~\cite{balazadeh2025causalpfn}.
+
+\section{Background \& Literature Review}
+Under the potential-outcomes framework, the CATE is the expected difference in outcome from treating
+an individual with given covariates. In a randomized trial, treatment is independent of covariates,
+so the effect is the gap between the treated and control response surfaces and uplift can be
+validated directly. The task is to rank units by effect and treat a top fraction under budget, so
+ranking quality is summarized by the Qini coefficient and the area under the uplift
+curve~\cite{devriendt2018uplift}. This is why a model with worse pointwise accuracy can still rank
+better.
+
+Meta-learners reduce effect estimation to supervised learning: the S-, T- and
+X-Learners~\cite{kunzel2019metalearners}, the orthogonal R-Learner~\cite{nie2021rlearner}, and doubly
+robust DR-Learners~\cite{kennedy2023drlearner}, here all on gradient boosting. Causal Forest and
+generalized random forests~\cite{wager2018causalforest, athey2019grf}, and Bayesian Causal
+Forest~\cite{hahn2020bcf}, strong on semi-synthetic benchmarks, add mature baselines with
+uncertainty. Representation-learning networks form the neural
+family~\cite{shalit2017cfr, shi2019dragonnet, zhong2022descn}.
+
+Building on the tabular model TabPFN~\cite{hollmann2025tabpfn}, prior-data-fitted networks have been
+specialized for causal effects: CausalPFN~\cite{balazadeh2025causalpfn},
+Do-PFN~\cite{robertson2025dopfn}, and the CausalFM framework~\cite{causalfm2025}. CausalPFN is
+trained on simulated data-generating processes under ignorability and returns calibrated intervals.
+When a table exceeds its context window, it retrieves context rows by a weak-effect rule rather than
+reading all rows, and it is not built for instrumental-variable settings. This dependence on a
+bounded context, and the gap between the simulated prior and real campaign data, motivate the
+breakdown we study.
+
+Two recent non-foundation methods address the hard regimes directly. The Q-Learner writes the
+treated-to-control outcome ratio as a product of two odds ratios and is the most consistent method
+under low conversion~\cite{fuchs2026qlearner}. GP-CATE models each arm with a Gaussian process and
+gives calibrated intervals when the control arm is small, where standard X-Learner intervals
+under-cover~\cite{gpcate2026}.
+
+\section{Experimental Setup}
+\label{sec:experimental-setup}
+
+This section supplements the original project protocol with the preprocessing and baseline work
+completed in the current stage. The broader method pool and robustness experiments specified above
+remain part of the planned full study.
+
+\subsection{Datasets}
+The baseline study uses four randomized uplift datasets spanning substantially different sample
+sizes, treatment balances, and response rates. Criteo is a large-scale advertising experiment and
+Hillstrom is an email campaign~\cite{diemert2018criteo, hillstrom2008}. We additionally include the
+public X5 RetailHero benchmark and an anonymized LZD campaign dataset. The primary outcome is
+conversion for Criteo and Hillstrom and the supplied binary response for LZD and RetailHero. For
+Hillstrom, the two email variants are pooled into a single treated arm, so the estimand is the effect
+of receiving any campaign email rather than the difference between email creatives. Table
+\ref{tab:datasets} summarizes the data used after cleaning.
+
+Before the shared benchmark preprocessing, we use the fixed, audited cleaned versions of all datasets.
+For LZD, only the randomized test partition is retained because its original training partition was
+created by operational targeting. Near-constant or near-duplicate variables are removed from Criteo
+and LZD, while RetailHero variables whose timestamps may extend beyond the campaign are excluded to
+avoid post-treatment leakage. These dataset-level decisions are made once, before the experimental
+splits, and are therefore identical for every baseline.
+
+\begin{table}[!htpb]
+    \caption{Datasets used in the baseline comparison. The feature count is measured after the
+    train-fitted transformation.}
+    \label{tab:datasets}
+    \centering
+    \small
+    \resizebox{\linewidth}{!}{%
+    \begin{tabular}{lrrl}
+        \toprule
+        \textbf{Dataset} & \textbf{Samples} & \textbf{Features} & \textbf{Outcome} \\
+        \midrule
+        Criteo & 13,979,592 & 10 & Conversion \\
+        Hillstrom & 64,000 & 18 & Conversion \\
+        LZD & 181,669 & 64 & Binary response \\
+        RetailHero & 200,039 & 5 & Binary response \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+\subsection{Preprocessing and Data Splits}
+Feature and outcome tables are aligned by unit identifier before any split is constructed. Unit
+identifiers, treatment labels, split indicators, treatment timestamps, and known post-treatment
+variables are excluded from the covariates. We use a 60/20/20 train--validation--test protocol. For
+Hillstrom and RetailHero, splits are stratified by the joint treatment--outcome label. Criteo and
+LZD contain repeated covariate vectors; for these datasets we group rows by a hash of the complete
+cleaned covariate vector and keep each group in exactly one split. This prevents identical covariates from
+appearing in both training and evaluation data while retaining approximately the same split ratios.
+
+All transformations are fitted on the training split only. Missing numerical values are imputed by
+the training median and numerical features are standardized. Missing categorical values are imputed
+by the training mode and categories are one-hot encoded; categories first observed at evaluation
+time are ignored. The fitted transformation is then applied unchanged to validation and test data.
+Within a dataset and random seed, every model receives the same sampled rows, split assignments, and
+numeric feature matrices.
+
+\subsection{Baseline Estimators and Model Selection}
+The T-Learner fits separate treated and control outcome models and ranks units by their predicted
+difference. The X-Learner further learns imputed treatment effects in each arm and combines them
+using the empirical treatment propensity~\cite{kunzel2019metalearners}. The DR-Learner fits a
+gradient-boosted effect model to a cross-fitted doubly robust pseudo-outcome, using the randomized
+treatment rate as the propensity~\cite{kennedy2023drlearner}. These three estimators use histogram
+gradient boosting for their outcome and effect regressions. DragonNet uses a shared representation,
+two potential-outcome heads, and a propensity head~\cite{shi2019dragonnet}. Our implementation uses
+the basic joint outcome--propensity objective without targeted regularization; we state this
+explicitly to avoid conflating it with the targeted-regularization variant.
+
+For the foundation-model comparison, we use the official CausalPFN implementation and released
+pre-trained weights~\cite{balazadeh2025causalpfn}. CausalPFN is not tuned or trained per dataset. It
+uses a maximum context length of 4096, a maximum internal query length of 4096, and 1024 retrieved
+neighbours per treatment arm; optional temperature calibration is disabled. It receives the same
+training split as context and is evaluated on exactly the same test rows as the trained baselines.
+
+Hyperparameters for each dataset--trained-baseline pair are selected by maximizing normalized Qini
+AUC on the validation split over 20 configurations. The selected configuration is then
+instantiated anew and fitted on the training split; during DragonNet fitting, validation data are
+also used to select the early-stopping checkpoint. Each selected model is evaluated once on the
+held-out test split. The primary table uses seed 42. To measure sensitivity to splitting and
+initialization without repeatedly selecting on validation noise, we freeze these hyperparameters
+and repeat the procedure for seeds 0--4. All 80 trained-baseline evaluations in this repeated-seed
+matrix are complete. The final study retains the original protocol of at least ten seeds with
+bootstrap confidence intervals. No test outcome is used for preprocessing, early stopping, or
+hyperparameter selection.
+
+\subsection{Evaluation}
+The primary endpoint is normalized Qini AUC, which evaluates whether predicted CATE orders units by
+incremental response. We additionally report normalized uplift AUC, the unnormalized AUUC statistic,
+uplift among the top 10\% and 20\% of ranked units, and training and prediction time. Because only one
+potential outcome is observed for each unit in a real randomized campaign, these metrics evaluate
+policy-relevant ranking rather than pointwise CATE error. Pointwise effect error is reserved for the
+semi-synthetic experiments with known potential outcomes.
+
+\section{Baseline Comparison}
+\label{sec:baseline-results}
+Table~\ref{tab:baseline-qini} reports normalized Qini AUC on the held-out seed-42 test splits. There
+is no uniformly best estimator. DragonNet is strongest on Criteo and RetailHero, the T-Learner is
+best on Hillstrom, and the DR-Learner is best on LZD. The X-Learner is competitive on Criteo but does
+not dominate on the smaller campaigns. In particular, DragonNet's strong Criteo result does not
+transfer to Hillstrom, where its Qini is negative. These results support treating model family and
+campaign regime as part of the comparison rather than assuming that a more complex estimator gives
+a consistently better ranking.
+
+\begin{table}[!htpb]
+    \caption{Normalized Qini AUC on the held-out test split (seed 42). Higher is better; the best
+    result in each dataset is bold.}
+    \label{tab:baseline-qini}
+    \centering
+    \small
+    \resizebox{\linewidth}{!}{%
+    \begin{tabular}{lrrrr}
+        \toprule
+        \textbf{Model} & \textbf{Criteo} & \textbf{Hillstrom} & \textbf{LZD} & \textbf{RetailHero} \\
+        \midrule
+        T-Learner  & 0.476 & \textbf{0.249} & 0.004 & -0.002 \\
+        X-Learner  & 0.530 & 0.175 & 0.026 & 0.008 \\
+        DR-Learner & 0.496 & 0.238 & \textbf{0.052} & 0.004 \\
+        DragonNet  & \textbf{0.545} & -0.042 & 0.023 & \textbf{0.016} \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+Table~\ref{tab:baseline-qini-multiseed} summarizes the completed repeated-split evaluation with the
+seed-42-selected hyperparameters held fixed. The repeated results change the apparent winners on
+Hillstrom and LZD: the DR-Learner has the highest mean on Hillstrom and the X-Learner has the
+highest mean on LZD, whereas DragonNet retains the highest mean on Criteo and RetailHero.
+
+\begin{table}[!htpb]
+    \caption{Normalized Qini AUC over test splits for seeds 0--4, reported as mean $\pm$ sample
+    standard deviation. Hyperparameters are fixed from seed-42 validation selection. Higher is
+    better; the highest mean in each dataset is bold.}
+    \label{tab:baseline-qini-multiseed}
+    \centering
+    \small
+    \resizebox{\linewidth}{!}{%
+    \begin{tabular}{lrrrr}
+        \toprule
+        \textbf{Model} & \textbf{Criteo} & \textbf{Hillstrom} & \textbf{LZD} & \textbf{RetailHero} \\
+        \midrule
+        T-Learner  & $0.355 \pm 0.042$ & $-0.003 \pm 0.264$ & $-0.020 \pm 0.031$ & $0.008 \pm 0.003$ \\
+        X-Learner  & $0.416 \pm 0.044$ & $0.189 \pm 0.191$ & $\mathbf{0.035 \pm 0.031}$ & $0.017 \pm 0.004$ \\
+        DR-Learner & $0.420 \pm 0.057$ & $\mathbf{0.207 \pm 0.109}$ & $0.034 \pm 0.024$ & $0.012 \pm 0.004$ \\
+        DragonNet  & $\mathbf{0.435 \pm 0.064}$ & $0.007 \pm 0.218$ & $0.012 \pm 0.035$ & $\mathbf{0.021 \pm 0.003}$ \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+The large standard deviations on Hillstrom show that its low event count makes conclusions from a
+single split unreliable; in particular, the seed-42 T-Learner advantage does not persist across
+seeds. LZD and RetailHero have small absolute Qini values, and the gap between the best two methods
+on LZD is negligible relative to split variability. The full-data CausalPFN evaluation is complete
+for Hillstrom, LZD, and RetailHero and is running on Criteo, so foundation-model results are kept out
+of the table until every dataset--seed cell is available. Bootstrap intervals and the planned
+additional seeds remain necessary for final inferential claims.
+
+\section{Method and Timeline}
+CausalPFN is used as an in-context estimator: a sample of rows is given as context, and the effect is
+read off for new units with no training. We vary three axes: context size on large data, the
+control-arm share down to a few-placebo setting, and the base conversion rate. Along each axis we
+record where the model's ranking advantage over the classical core disappears.
+
+CausalPFN-Rank keeps the weights frozen and acts in two places. On the input side, it replaces the
+default context with a treatment-balanced sample and averages predictions over several retrieved
+contexts, compared against that default rather than a random one. On the output side, it adds a light
+re-ranking step: a ranking calibrator, a lower-confidence-bound score from the model's uncertainty,
+and a ratio score for low conversion. Table~\ref{tab:methods} lists the methods and their roles.
+
+\begin{table}[!htpb]
+    \caption{Methods and their role in the study.}
+    \label{tab:methods}
+    \centering
+    \begin{tabularx}{\linewidth}{lX}
+        \toprule
+        \textbf{Method} & \textbf{Role} \\
+        \midrule
+        CausalPFN & Foundation anchor \\
+        CausalPFN-Rank & Proposed training-free fix \\
+        S/T/X/DR + boosting & Tuned classical core \\
+        Causal Forest & Forest baseline \\
+        BCF & Bayesian baseline \\
+        DragonNet, DESCN & Neural baselines \\
+        Q-Learner & Specialist: low conversion \\
+        GP-CATE & Specialist: small control \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+The project runs over four weeks. Week 1 builds the harness, reproduces CausalPFN's uplift example as
+a smoke test, wires up the baselines, and runs the first untuned comparison. Week 2 builds the three
+axes and adds the specialists on their regimes. Week 3 implements and ablates the two parts of
+CausalPFN-Rank. Week 4 runs the final comparison with confidence intervals and the efficiency
+summary, then writes up results and limitations.
+
+\section*{Limitations}
+Qini has high variance, so we use bootstrap confidence intervals, at least ten seeds, and a primary
+metric fixed in advance. CausalPFN already retrieves context by a weak-effect rule, so the context
+part of CausalPFN-Rank is measured against that default, not a random baseline. The model sees only a
+bounded context window while gradient boosting trains on all rows; we report this and treat the
+context budget as part of the method. Real randomized data allow only ranking evaluation, while
+semi-synthetic data give effect accuracy but come from causal models close to the model's training
+prior, which is itself the subject of H1. We subsample large tables and train no foundation model.
+
+\printbibliography
+
+\end{document}

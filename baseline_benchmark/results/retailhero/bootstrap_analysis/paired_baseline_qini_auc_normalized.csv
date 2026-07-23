@@ -1,0 +1,6 @@
+dataset,axis,severity_tag,metric,reference,comparison,comparison_model,mean_difference,ci_low,ci_high,n_draws,excludes_zero
+retailhero,baseline,baseline_full,qini_auc_normalized,x_learner,constant_ate,constant_ate,0.08972136145598732,-0.0033517970657046463,0.2059753173419826,600,False
+retailhero,baseline,baseline_full,qini_auc_normalized,x_learner,dr_learner,dr_learner,-0.01644597995210128,-0.11011486560160533,0.08585715334523682,600,False
+retailhero,baseline,baseline_full,qini_auc_normalized,x_learner,s_learner,s_learner,0.014367206617521144,-0.12093822249708232,0.15450882023466744,600,False
+retailhero,baseline,baseline_full,qini_auc_normalized,x_learner,t_learner,t_learner,0.027103491946080364,-0.04426717968156573,0.10403405230361278,600,False
+retailhero,baseline,baseline_full,qini_auc_normalized,x_learner,best_alternative,dr_learner,-0.01644597995210128,-0.11011486560160533,0.08585715334523682,600,False
