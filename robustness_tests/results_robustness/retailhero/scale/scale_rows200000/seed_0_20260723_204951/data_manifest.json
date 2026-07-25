@@ -1,0 +1,51 @@
+{
+  "dataset": "retailhero",
+  "axis": "scale",
+  "severity": 200000,
+  "severity_tag": "scale_rows200000",
+  "severity_kind": "target_rows",
+  "seed": 0,
+  "evaluation_split": "test",
+  "degrade_splits": "train+val",
+  "base_model": null,
+  "hparam_tag": "default",
+  "hparam_name": "",
+  "hparam_value": null,
+  "outcome": "Y",
+  "group_safe_split": false,
+  "n_transformed_features": 5,
+  "transformed_feature_names": [
+    "gender_M",
+    "gender_F",
+    "gender_U",
+    "age",
+    "first_issue_time"
+  ],
+  "train": {
+    "n": 40000,
+    "treatment_rate": 0.4974,
+    "outcome_rate": 0.624325,
+    "n_control": 20104,
+    "n_treated": 19896,
+    "events_control": 12177,
+    "events_treated": 12796
+  },
+  "validation": {
+    "n": 13333,
+    "treatment_rate": 0.5018375459386485,
+    "outcome_rate": 0.6155403885097127,
+    "n_control": 6642,
+    "n_treated": 6691,
+    "events_control": 3959,
+    "events_treated": 4248
+  },
+  "test": {
+    "n": 40008,
+    "treatment_rate": 0.4998250349930014,
+    "outcome_rate": 0.619876024795041,
+    "n_control": 20011,
+    "n_treated": 19997,
+    "events_control": 12072,
+    "events_treated": 12728
+  }
+}

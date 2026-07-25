@@ -1,0 +1,16 @@
+dataset,axis,severity_tag,model,metric,n_seeds,mean,ci_low,ci_high,n_draws
+retailhero,confounding_risk,confounding_risk_lam0p00,causalpfn,uplift_at_10pct,3,0.013902719216042626,-0.06775524067063783,0.09618745270090653,150
+retailhero,confounding_risk,confounding_risk_lam0p00,dr_learner,uplift_at_10pct,3,0.026954527703277893,-0.07432783865334958,0.13797282991733484,150
+retailhero,confounding_risk,confounding_risk_lam0p00,dragonnet,uplift_at_10pct,3,0.026407129628417392,-0.06175077612058365,0.11429191073919112,150
+retailhero,confounding_risk,confounding_risk_lam0p00,t_learner,uplift_at_10pct,3,-0.012293098745252716,-0.09859234173516898,0.0748798083859422,150
+retailhero,confounding_risk,confounding_risk_lam0p00,x_learner,uplift_at_10pct,3,0.011482868372880173,-0.09568408453391068,0.1282634501168889,150
+retailhero,confounding_risk,confounding_risk_lam2p00,causalpfn,uplift_at_10pct,2,0.029756000043864105,-0.08077853668000562,0.14225684015007742,100
+retailhero,confounding_risk,confounding_risk_lam2p00,dr_learner,uplift_at_10pct,2,0.01877479788299826,-0.089231892231586,0.11822341114799173,100
+retailhero,confounding_risk,confounding_risk_lam2p00,dragonnet,uplift_at_10pct,2,0.05001880339356661,-0.015698246245800157,0.1304121102327624,100
+retailhero,confounding_risk,confounding_risk_lam2p00,t_learner,uplift_at_10pct,2,0.03542105657619286,-0.05415477328735342,0.13075791206642698,100
+retailhero,confounding_risk,confounding_risk_lam2p00,x_learner,uplift_at_10pct,2,0.05340786597832062,-0.0910814004242563,0.21769387875321475,100
+retailhero,confounding_risk,confounding_risk_lam4p00,causalpfn,uplift_at_10pct,2,0.04718873115889077,-0.0545049859977581,0.12360428448041341,100
+retailhero,confounding_risk,confounding_risk_lam4p00,dr_learner,uplift_at_10pct,2,0.05695008786143288,-0.09228326941504376,0.19232704918032792,100
+retailhero,confounding_risk,confounding_risk_lam4p00,dragonnet,uplift_at_10pct,2,0.07429219962753192,-0.019122775560055486,0.18077584699080157,100
+retailhero,confounding_risk,confounding_risk_lam4p00,t_learner,uplift_at_10pct,2,0.04127856777720946,-0.09666715959285571,0.17620660470396868,100
+retailhero,confounding_risk,confounding_risk_lam4p00,x_learner,uplift_at_10pct,2,0.06779814331749412,-0.06534162534228273,0.18492528905872727,100

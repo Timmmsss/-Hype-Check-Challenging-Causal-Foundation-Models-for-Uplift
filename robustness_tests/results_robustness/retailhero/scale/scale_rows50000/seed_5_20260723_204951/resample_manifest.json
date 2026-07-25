@@ -1,0 +1,161 @@
+{
+  "dataset": "retailhero",
+  "axis": "scale",
+  "severity": 50000,
+  "severity_tag": "scale_rows50000",
+  "severity_kind": "target_rows",
+  "seed": 5,
+  "evaluation_split": "test",
+  "degrade_splits": "train+val",
+  "base_model": null,
+  "hparam_tag": "default",
+  "hparam_name": "",
+  "hparam_value": null,
+  "resample_records": {
+    "train": {
+      "rule": "scale",
+      "params": {
+        "target_rows": 50000,
+        "conversion_risk": "fitted",
+        "equalize_rows_train": 40000,
+        "equalize_rows_target": 40000,
+        "n_after_equalization": 40000,
+        "equalize_reached": true
+      },
+      "n_before": 120023,
+      "n_after": 40000,
+      "acceptance_rate": 0.3332694566874682,
+      "envelope_M": null,
+      "treatment_rate_before": 0.49980420419419613,
+      "treatment_rate_after": 0.5017,
+      "outcome_rate_before": 0.6198895211751081,
+      "outcome_rate_after": 0.6204,
+      "conditions_on_outcome": false,
+      "preserves_randomization": true
+    },
+    "validation": {
+      "rule": "scale",
+      "params": {
+        "target_rows": 50000,
+        "conversion_risk": "fitted",
+        "equalize_rows_train": 40000,
+        "equalize_rows_target": 13333,
+        "n_after_equalization": 13333,
+        "equalize_reached": true
+      },
+      "n_before": 40008,
+      "n_after": 13333,
+      "acceptance_rate": 0.3332583483303339,
+      "envelope_M": null,
+      "treatment_rate_before": 0.4998250349930014,
+      "treatment_rate_after": 0.49508737718442963,
+      "outcome_rate_before": 0.619876024795041,
+      "outcome_rate_after": 0.6175654391359784,
+      "conditions_on_outcome": false,
+      "preserves_randomization": true
+    },
+    "test": {
+      "rule": "scale:untouched",
+      "params": {
+        "severity": 50000
+      },
+      "n_before": 40008,
+      "n_after": 40008,
+      "acceptance_rate": 1.0,
+      "envelope_M": null,
+      "treatment_rate_before": 0.4998000399920016,
+      "treatment_rate_after": 0.4998000399920016,
+      "outcome_rate_before": 0.6199010197960408,
+      "outcome_rate_after": 0.6199010197960408,
+      "conditions_on_outcome": false,
+      "preserves_randomization": true
+    }
+  },
+  "diagnostics": {
+    "axis": "scale",
+    "severity": 50000,
+    "degrade_splits": [
+      "train",
+      "validation"
+    ],
+    "anchor": false,
+    "event_counts": {
+      "train": {
+        "split": "train",
+        "n": 40000,
+        "treatment_rate": 0.5017,
+        "outcome_rate": 0.6204,
+        "arm_0": {
+          "n": 19932,
+          "events": 11973
+        },
+        "arm_1": {
+          "n": 20068,
+          "events": 12843
+        },
+        "min_events_per_arm": 11973,
+        "both_arms_present": true,
+        "degenerate": false,
+        "min_events_threshold": 10
+      },
+      "validation": {
+        "split": "validation",
+        "n": 13333,
+        "treatment_rate": 0.49508737718442963,
+        "outcome_rate": 0.6175654391359784,
+        "arm_0": {
+          "n": 6732,
+          "events": 4035
+        },
+        "arm_1": {
+          "n": 6601,
+          "events": 4199
+        },
+        "min_events_per_arm": 4035,
+        "both_arms_present": true,
+        "degenerate": false,
+        "min_events_threshold": 10
+      },
+      "test": {
+        "split": "test",
+        "n": 40008,
+        "treatment_rate": 0.4998000399920016,
+        "outcome_rate": 0.6199010197960408,
+        "arm_0": {
+          "n": 20012,
+          "events": 12073
+        },
+        "arm_1": {
+          "n": 19996,
+          "events": 12728
+        },
+        "min_events_per_arm": 12073,
+        "both_arms_present": true,
+        "degenerate": false,
+        "min_events_threshold": 10
+      }
+    },
+    "realized": {
+      "train": {
+        "realized_treatment_rate": 0.5017,
+        "realized_conversion_rate": 0.6204,
+        "realized_control_share": 0.4983,
+        "n_rows": 40000
+      },
+      "validation": {
+        "realized_treatment_rate": 0.49508737718442963,
+        "realized_conversion_rate": 0.6175654391359784,
+        "realized_control_share": 0.5049126228155704,
+        "n_rows": 13333
+      },
+      "test": {
+        "realized_treatment_rate": 0.4998000399920016,
+        "realized_conversion_rate": 0.6199010197960408,
+        "realized_control_share": 0.5001999600079984,
+        "n_rows": 40008
+      }
+    },
+    "degenerate": false,
+    "equalization_reached": true
+  }
+}

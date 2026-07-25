@@ -1,0 +1,56 @@
+{
+  "dataset": "criteo",
+  "axis": "scale",
+  "severity": 20000,
+  "severity_tag": "scale_rows20000",
+  "severity_kind": "target_rows",
+  "seed": 0,
+  "evaluation_split": "test",
+  "degrade_splits": "train+val",
+  "base_model": null,
+  "hparam_tag": "default",
+  "hparam_name": "",
+  "hparam_value": null,
+  "outcome": "conversion",
+  "group_safe_split": true,
+  "n_transformed_features": 10,
+  "transformed_feature_names": [
+    "f0",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f8",
+    "f9",
+    "f11"
+  ],
+  "train": {
+    "n": 20000,
+    "treatment_rate": 0.8505,
+    "outcome_rate": 0.0025,
+    "n_control": 2990,
+    "n_treated": 17010,
+    "events_control": 6,
+    "events_treated": 44
+  },
+  "validation": {
+    "n": 13333,
+    "treatment_rate": 0.8528463211580289,
+    "outcome_rate": 0.00255006375159379,
+    "n_control": 1962,
+    "n_treated": 11371,
+    "events_control": 2,
+    "events_treated": 32
+  },
+  "test": {
+    "n": 2791644,
+    "treatment_rate": 0.850016692672848,
+    "outcome_rate": 0.0028990086128460506,
+    "n_control": 418700,
+    "n_treated": 2372944,
+    "events_control": 776,
+    "events_treated": 7317
+  }
+}

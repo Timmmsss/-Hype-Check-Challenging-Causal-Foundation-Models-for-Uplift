@@ -1,0 +1,24 @@
+{
+  "results_root": "/home/jupyter/project/robustness_tests/results_robustness",
+  "output_dir": "None",
+  "n_bootstrap": "50",
+  "bootstrap_seed": "0",
+  "bootstrap_max_rows": "5000",
+  "level": "0.95",
+  "metrics": "qini_auc_normalized,uplift_at_10pct",
+  "reference_model": "causalpfn",
+  "no_figures": "False",
+  "n_cells_bootstrapped": 259,
+  "figures": [
+    "figure_criteo_control_share_qini_auc_normalized.png",
+    "figure_criteo_scale_qini_auc_normalized.png",
+    "figure_hillstrom_control_share_qini_auc_normalized.png",
+    "figure_hillstrom_conversion_qini_auc_normalized.png",
+    "figure_hillstrom_scale_qini_auc_normalized.png",
+    "figure_lzd_control_share_qini_auc_normalized.png",
+    "figure_lzd_conversion_qini_auc_normalized.png",
+    "figure_lzd_scale_qini_auc_normalized.png",
+    "figure_retailhero_control_share_qini_auc_normalized.png",
+    "figure_retailhero_scale_qini_auc_normalized.png"
+  ]
+}

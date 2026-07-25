@@ -1,0 +1,5 @@
+dataset,axis,metric,n_severities,breaks,breakpoint_severity_tag,breakpoint_severity,difference_at_breakpoint,ci_at_breakpoint,worst_difference,worst_severity_tag
+hillstrom,conversion,qini_auc_normalized,6,False,,,,,-69.81726921821753,conversion_lam12p00
+hillstrom,conversion,uplift_at_10pct,6,False,,,,,-0.006814735894789983,conversion_lam0p00
+lzd,conversion,qini_auc_normalized,1,False,,,,,-0.1756821136624547,conversion_lam0p00
+lzd,conversion,uplift_at_10pct,1,False,,,,,-0.023238698967123845,conversion_lam0p00

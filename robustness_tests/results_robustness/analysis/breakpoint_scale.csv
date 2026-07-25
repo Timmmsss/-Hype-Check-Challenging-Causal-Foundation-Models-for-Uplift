@@ -1,0 +1,7 @@
+dataset,axis,metric,n_severities,breaks,breakpoint_severity_tag,breakpoint_severity,difference_at_breakpoint,ci_at_breakpoint,worst_difference,worst_severity_tag
+hillstrom,scale,qini_auc_normalized,6,False,,,,,-0.2652653266503378,scale_rows50000
+hillstrom,scale,uplift_at_10pct,6,False,,,,,-0.00920721829174492,scale_rows50000
+lzd,scale,qini_auc_normalized,6,False,,,,,-0.1318687402664596,scale_full
+lzd,scale,uplift_at_10pct,6,False,,,,,-0.023933605112157093,scale_full
+retailhero,scale,qini_auc_normalized,6,False,,,,,-0.018491950742804703,scale_rows200000
+retailhero,scale,uplift_at_10pct,6,False,,,,,-0.023301252247797187,scale_rows200000

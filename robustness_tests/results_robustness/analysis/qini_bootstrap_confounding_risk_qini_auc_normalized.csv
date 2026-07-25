@@ -1,0 +1,16 @@
+dataset,axis,severity_tag,model,metric,n_seeds,mean,ci_low,ci_high,n_draws
+retailhero,confounding_risk,confounding_risk_lam0p00,causalpfn,qini_auc_normalized,3,0.00019131747090510133,-0.03735584613175186,0.03878141182943093,150
+retailhero,confounding_risk,confounding_risk_lam0p00,dr_learner,qini_auc_normalized,3,0.008734074839180013,-0.025993265812528935,0.041685515953888884,150
+retailhero,confounding_risk,confounding_risk_lam0p00,dragonnet,qini_auc_normalized,3,0.008454424169012294,-0.046577330113939795,0.057259018987891784,150
+retailhero,confounding_risk,confounding_risk_lam0p00,t_learner,qini_auc_normalized,3,-0.005235146802170778,-0.043706780780906736,0.03358333634716172,150
+retailhero,confounding_risk,confounding_risk_lam0p00,x_learner,qini_auc_normalized,3,0.0026464246402014362,-0.04005895254465081,0.035386930657069215,150
+retailhero,confounding_risk,confounding_risk_lam2p00,causalpfn,qini_auc_normalized,2,0.012871490314130794,-0.02288184874304843,0.055990314496355116,100
+retailhero,confounding_risk,confounding_risk_lam2p00,dr_learner,qini_auc_normalized,2,0.005632300496695922,-0.030656969843034013,0.04346245438830154,100
+retailhero,confounding_risk,confounding_risk_lam2p00,dragonnet,qini_auc_normalized,2,0.021140256674215686,-0.017672240059477044,0.06090714542007381,100
+retailhero,confounding_risk,confounding_risk_lam2p00,t_learner,qini_auc_normalized,2,0.013607481247662973,-0.027202752933407893,0.057891232147952554,100
+retailhero,confounding_risk,confounding_risk_lam2p00,x_learner,qini_auc_normalized,2,0.011883056305752846,-0.03791039965328666,0.06043979836430707,100
+retailhero,confounding_risk,confounding_risk_lam4p00,causalpfn,qini_auc_normalized,2,0.011847411418802132,-0.024999095254350324,0.059786113915922215,100
+retailhero,confounding_risk,confounding_risk_lam4p00,dr_learner,qini_auc_normalized,2,0.006880059431571258,-0.04999496908319945,0.06412426383233016,100
+retailhero,confounding_risk,confounding_risk_lam4p00,dragonnet,qini_auc_normalized,2,0.029347701546110647,-0.017593291865906194,0.07495876930972621,100
+retailhero,confounding_risk,confounding_risk_lam4p00,t_learner,qini_auc_normalized,2,0.012433849340995886,-0.03879869158892021,0.06033498376140939,100
+retailhero,confounding_risk,confounding_risk_lam4p00,x_learner,qini_auc_normalized,2,0.01977544232629226,-0.02902762965108386,0.07083026685749962,100

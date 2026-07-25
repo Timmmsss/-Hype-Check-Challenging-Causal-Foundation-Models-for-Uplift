@@ -1,0 +1,16 @@
+dataset,axis,severity_tag,metric,reference,comparison,comparison_model,mean_difference,ci_low,ci_high,n_draws,excludes_zero
+retailhero,confounding_risk,confounding_risk_lam0p00,uplift_at_10pct,causalpfn,dr_learner,dr_learner,-0.013051808487235262,-0.1004877393901891,0.08538060128771974,150,False
+retailhero,confounding_risk,confounding_risk_lam0p00,uplift_at_10pct,causalpfn,dragonnet,dragonnet,-0.012504410412374767,-0.12014958435815415,0.1150229609173968,150,False
+retailhero,confounding_risk,confounding_risk_lam0p00,uplift_at_10pct,causalpfn,t_learner,t_learner,0.02619581796129534,-0.05307245493980969,0.1318598247129658,150,False
+retailhero,confounding_risk,confounding_risk_lam0p00,uplift_at_10pct,causalpfn,x_learner,x_learner,0.0024198508431624542,-0.10603568410396587,0.08642662347347134,150,False
+retailhero,confounding_risk,confounding_risk_lam0p00,uplift_at_10pct,causalpfn,best_alternative,dr_learner,-0.013051808487235262,-0.1004877393901891,0.08538060128771974,150,False
+retailhero,confounding_risk,confounding_risk_lam2p00,uplift_at_10pct,causalpfn,dr_learner,dr_learner,0.010981202160865849,-0.07799402372473908,0.09330416896547057,100,False
+retailhero,confounding_risk,confounding_risk_lam2p00,uplift_at_10pct,causalpfn,dragonnet,dragonnet,-0.0202628033497025,-0.11853354123061607,0.08116343162814871,100,False
+retailhero,confounding_risk,confounding_risk_lam2p00,uplift_at_10pct,causalpfn,t_learner,t_learner,-0.005665056532328745,-0.10611004030225832,0.10228203530464534,100,False
+retailhero,confounding_risk,confounding_risk_lam2p00,uplift_at_10pct,causalpfn,x_learner,x_learner,-0.023651865934456503,-0.11744993916068167,0.07120368149861514,100,False
+retailhero,confounding_risk,confounding_risk_lam2p00,uplift_at_10pct,causalpfn,best_alternative,x_learner,-0.023651865934456503,-0.11744993916068167,0.07120368149861514,100,False
+retailhero,confounding_risk,confounding_risk_lam4p00,uplift_at_10pct,causalpfn,dr_learner,dr_learner,-0.009761356702542117,-0.14553879007328965,0.136646447781706,100,False
+retailhero,confounding_risk,confounding_risk_lam4p00,uplift_at_10pct,causalpfn,dragonnet,dragonnet,-0.027103468468641152,-0.15430943162660674,0.10737374992090218,100,False
+retailhero,confounding_risk,confounding_risk_lam4p00,uplift_at_10pct,causalpfn,t_learner,t_learner,0.005910163381681311,-0.14991647702312808,0.14515847863715955,100,False
+retailhero,confounding_risk,confounding_risk_lam4p00,uplift_at_10pct,causalpfn,x_learner,x_learner,-0.020609412158603346,-0.1512738254684663,0.12310307351628612,100,False
+retailhero,confounding_risk,confounding_risk_lam4p00,uplift_at_10pct,causalpfn,best_alternative,dragonnet,-0.027103468468641152,-0.15430943162660674,0.10737374992090218,100,False
